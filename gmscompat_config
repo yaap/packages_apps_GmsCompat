@@ -59,6 +59,13 @@ metadata_enabled false
 # needed to prevent GmsCore from blocking Google account removal due to lacking a privileged integration into OS
 BugFixFeatures__fix_frp_in_r false
 
+[com.google.android.location]
+# these flags are needed to prevent GmsCore from ignoring results of the legacy WifiManager#startScan()
+# method, which doesn't have an unprivileged modern version. It's used for location estimation based
+# on nearby Wi-Fi access points
+d_psl false
+fwm true
+
 [gservices]
 # make sure PhenotypeFlags are overridable by Gservices flags. Overriding Play Store (finsky) PhenotypeFlags
 # directly is much more complex than overriding Gservices flags.
@@ -169,7 +176,7 @@ getServiceState null
 [[versionMap]]
 # section name is gmscompat version, section contents are max supported versions of GmsCore and Play Store
 [1000]
-230399999 83429999
+230699999 83459999
 
 [[stubs_12.1]]
 

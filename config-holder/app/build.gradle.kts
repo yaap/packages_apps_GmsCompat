@@ -5,15 +5,22 @@ plugins {
     id("com.android.application")
 }
 
+java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(11))
+    }
+}
+
 android {
     namespace = "app.grapheneos.gmscompat.config"
 
     compileSdk = 33
+    buildToolsVersion = "33.0.2"
 
     defaultConfig {
         minSdk = 32
         targetSdk = 33
-        versionCode = 29
+        versionCode = 34
         versionName = versionCode.toString()
     }
 
