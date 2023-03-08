@@ -1,5 +1,6 @@
 package app.grapheneos.gmscompat;
 
+import android.Manifest;
 import android.annotation.Nullable;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
@@ -18,14 +19,18 @@ import com.android.internal.gmscompat.StubDef;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InvalidObjectException;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -121,6 +126,8 @@ public class GmsCompatConfigParser {
         final int SECTION_FLAGS = 0;
         final int SECTION_STUBS = 1;
         final int SECTION_VERSION_MAP = 2;
+        final int SECTION_FORCE_DEFAULT_FLAGS = 3;
+        final int SECTION_SPOOF_SELF_PERMISSION_CHECKS = 4;
 
         final long selfVersionCode = App.ctx().getApplicationInfo().longVersionCode;
 
@@ -143,19 +150,29 @@ public class GmsCompatConfigParser {
             boolean skipStubs = false;
 
             int section2Type;
-            if ("flags".equals(sectionL2)) {
-                section2Type = SECTION_FLAGS;
-            } else if ("stubs".equals(sectionL2)) {
-                section2Type = SECTION_STUBS;
-            } else if ("versionMap".equals(sectionL2)) {
-                section2Type = SECTION_VERSION_MAP;
-            } else if ("stubs_12.1".equals(sectionL2)) {
-                section2Type = SECTION_STUBS;
-                skipStubs = Build.VERSION.SDK_INT >= 33;
-            }
-            else {
-                invalidLine(line);
-                return;
+            switch (sectionL2) {
+                case "flags":
+                    section2Type = SECTION_FLAGS;
+                    break;
+                case "stubs":
+                    section2Type = SECTION_STUBS;
+                    break;
+                case "versionMap":
+                    section2Type = SECTION_VERSION_MAP;
+                    break;
+                case "stubs_12.1":
+                    section2Type = SECTION_STUBS;
+                    skipStubs = Build.VERSION.SDK_INT >= 33;
+                    break;
+                case "force_default_flags":
+                    section2Type = SECTION_FORCE_DEFAULT_FLAGS;
+                    break;
+                case "spoof_self_permission_checks":
+                    section2Type = SECTION_SPOOF_SELF_PERMISSION_CHECKS;
+                    break;
+                default:
+                    invalidLine(line);
+                    return;
             }
 
             line = lines.get(lineIdx++);
@@ -179,6 +196,8 @@ public class GmsCompatConfigParser {
                 ArrayMap<String, GmsFlag> packageFlags = null;
                 ArrayMap<String, StubDef> classStubs = null;
                 long versionMapTargetVersion = 0L;
+                ArrayList<String> forceDefaultFlags = null;
+                ArrayList<String> spoofSelfPermissionChecks = null;
 
                 if (section2Type == SECTION_FLAGS) {
                     String ns = sectionL1;
@@ -196,6 +215,14 @@ public class GmsCompatConfigParser {
                     }
                 } else if (section2Type == SECTION_VERSION_MAP) {
                     versionMapTargetVersion = Long.parseLong(sectionL1);
+                } else if (section2Type == SECTION_FORCE_DEFAULT_FLAGS) {
+                    String namespace = sectionL1;
+                    forceDefaultFlags = new ArrayList<>();
+                    res.forceDefaultFlagsMap.put(namespace, forceDefaultFlags);
+                } else if (section2Type == SECTION_SPOOF_SELF_PERMISSION_CHECKS) {
+                    String packageName = sectionL1;
+                    spoofSelfPermissionChecks = new ArrayList<>();
+                    res.spoofSelfPermissionChecksMap.put(packageName, spoofSelfPermissionChecks);
                 }
 
                 sectionL0Loop:
@@ -217,6 +244,22 @@ public class GmsCompatConfigParser {
                                 invalidLine(line);
                                 return;
                         }
+                    }
+
+                    if (section2Type == SECTION_FORCE_DEFAULT_FLAGS) {
+                        String regex = line;
+                        if (strict) {
+                            checkRegex(regex);
+                        }
+                        forceDefaultFlags.add(regex);
+                        continue;
+                    } else if (section2Type == SECTION_SPOOF_SELF_PERMISSION_CHECKS) {
+                        String permission = line;
+                        if (strict) {
+                            checkPermission(permission);
+                        }
+                        spoofSelfPermissionChecks.add(permission);
+                        continue;
                     }
 
                     lineParser.start(line);
@@ -595,6 +638,38 @@ public class GmsCompatConfigParser {
     private static void stubCheck(String sig, boolean v) throws InvalidObjectException {
         if (!v) {
             throw new InvalidObjectException("invalid stub for " + sig);
+        }
+    }
+
+    private void checkRegex(String regex) {
+        try {
+            Pattern.compile(regex);
+        } catch (PatternSyntaxException e) {
+            Log.d(TAG, "invalid regex " + regex, e);
+            invalid = true;
+        }
+    }
+
+    private static volatile String[] allPermissions;
+
+    private void checkPermission(String perm) {
+        if (allPermissions == null) {
+            Field[] fields = Manifest.permission.class.getDeclaredFields();
+            int cnt = fields.length;
+            String[] arr = new String[cnt];
+            for (int i = 0; i < cnt; ++i) {
+                try {
+                    arr[i] = (String) fields[i].get(null);
+                } catch (IllegalAccessException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+            Arrays.sort(arr);
+            allPermissions = arr;
+        }
+        if (Arrays.binarySearch(allPermissions, perm) < 0) {
+            Log.d(TAG, "unknown permission " + perm);
+            invalid = true;
         }
     }
 
